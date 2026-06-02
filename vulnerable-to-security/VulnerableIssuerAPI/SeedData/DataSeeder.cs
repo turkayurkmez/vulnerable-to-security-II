@@ -90,8 +90,8 @@ public static class DataSeeder
                 CardNumber = "4532123456789010",
                 // AÇIK: CVV plaintext (PCI DSS Requirement 3.2 ihlali)
                 CVV = "123",
-                ExpiryMonth = "12",
-                ExpiryYear = "2026",
+                ExpiryMonth = 12,
+                ExpiryYear = 2026,
                 CardHolderName = "AHMET YILMAZ",
                 AvailableBalance = 15000.00m,
                 CreditLimit = 20000.00m,
@@ -105,8 +105,8 @@ public static class DataSeeder
                 // AÇIK: Full PAN plaintext (Mastercard, Luhn geçerli)
                 CardNumber = "5425233430109903",
                 CVV = "456",
-                ExpiryMonth = "06",
-                ExpiryYear = "2025",
+                ExpiryMonth = 06,
+                ExpiryYear = 2025,
                 CardHolderName = "AHMET YILMAZ",
                 AvailableBalance = 8500.00m,
                 CreditLimit = 10000.00m,
@@ -120,8 +120,8 @@ public static class DataSeeder
                 // AÇIK: Full PAN plaintext (Visa, Luhn geçerli)
                 CardNumber = "4716158604553580",
                 CVV = "789",
-                ExpiryMonth = "03",
-                ExpiryYear = "2027",
+                ExpiryMonth = 03,
+                ExpiryYear = 2027,
                 CardHolderName = "FATMA KAYA",
                 AvailableBalance = 22000.00m,
                 CreditLimit = 25000.00m,

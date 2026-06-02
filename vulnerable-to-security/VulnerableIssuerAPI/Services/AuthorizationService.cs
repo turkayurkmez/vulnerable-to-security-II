@@ -115,13 +115,15 @@ public class AuthorizationService
         _logger.LogInformation("[AÇIK] Transaction processed: CardNumber={CardNumber}, Amount={Amount}",
             card.CardNumber, request.Amount); // AÇIK: Full PAN log'a yazılıyor
 
+        var pan = card.CardNumber;
+
         return new AuthorizationResponse
         {
             IsApproved = true,
             TransactionId = transaction.TransactionId,
             AuthorizationCode = transaction.AuthorizationCode,
-            CardNumber = card.CardNumber,       // AÇIK: Full PAN (PCI DSS ihlali)
-            CVV = card.CVV,                     // AÇIK: CVV response'da!
+            MaskedCardNumber = $"{pan[..6]}*******{pan[^4..]}",       // PAN masked olarak dönüyor (ilk 6 + son 4 hariç)
+            //CVV = card.CVV,                     // CVV kaldırıldı!
             AvailableBalance = card.AvailableBalance,
             RemainingLimit = card.CreditLimit - card.AvailableBalance
         };

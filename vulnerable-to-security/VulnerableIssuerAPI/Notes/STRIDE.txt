@@ -1,0 +1,16 @@
+﻿
+
+Spoofing: kimlik sahteciliği. Sistem, "ben ahmet.yilmaz" diyen bir kullanıcıya inanıyor mu? Eğer kullanıcı adı ve şifre doğrulaması zayıfsa, saldırgan bu bilgileri ele geçirerek sisteme sahte bir kimlikle girebilir.
+
+Tampering: veri bütünlüğünü bozma. Bir saldırgan, bir kullanıcının verilerini değiştirebilir veya silebilir. Örneğin, bir saldırgan bir kullanıcının profil bilgilerini değiştirebilir veya bir kullanıcının gönderdiği mesajları silebilir.
+
+Repudiation: inkar edilebilirlik. "Ben yapmadım" diyen bir kullanıcıya ne yanıt verirsiniz? Bir kullanıcı, yaptığı bir işlemi inkar edebilir. Örneğin, bir kullanıcı bir mesaj gönderdiğini inkar edebilir veya bir kullanıcının hesabından yapılan bir işlemi inkar edebilir.
+
+Information Disclosure: bilgi sızdırma. veritabanı bağlantısı, fazla detaylı hata mesajları veya yanlış yapılandırılmış erişim kontrolleri gibi zayıf noktalar aracılığıyla hassas bilgilerin ifşa edilmesi. Örneğin, bir saldırgan bir veritabanı bağlantısı aracılığıyla kullanıcıların kişisel bilgilerini ele geçirebilir.
+
+Denial of Service: hizmet reddi. Brute-force, DDOS saldırıları veya kaynak tüketimi (rate-limiting aşımı) gibi yöntemlerle sistemin hizmet vermesini engelleme.
+
+Elevation of Privilege: yetki yükseltme. Customer rolündeki biri, Admin rolüne geçmeye çalışabilir. Eğer yetki kontrolleri zayıfsa, saldırgan bu geçişi gerçekleştirebilir ve daha fazla yetkiye sahip olabilir.
+
+
+Not: DREAD puanı denilen bir yaklaşımla, risk puanı belirlenebilir. DREAD, Damage (Zarar), Reproducibility (Tekrar Üretilebilirlik), Exploitability (Kötüye Kullanılabilirlik), Affected Users (Etkilenen Kullanıcılar) ve Discoverability (Keşfedilebilirlik) kriterlerine göre her bir tehdidi değerlendiren bir yöntemdir. Her kriter 1 ile 10 arasında puanlanır ve toplam puan, tehdidin risk seviyesini belirler.

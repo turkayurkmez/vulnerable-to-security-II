@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using VulnerableIssuerAPI.Data;
 
@@ -10,9 +11,11 @@ using VulnerableIssuerAPI.Data;
 namespace VulnerableIssuerAPI.Migrations
 {
     [DbContext(typeof(VulnerableDbContext))]
-    partial class VulnerableDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260602105249_change_types")]
+    partial class change_types
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder.HasAnnotation("ProductVersion", "10.0.5");
