@@ -12,8 +12,8 @@ public class Card
     // EXPLOIT: DB dump alındığında CVV ile kart kopyalanabilir (card cloning)
     // CVSS: 9.1 (Critical) — PCI DSS Violation
     public string CVV { get; set; } = string.Empty;
-    public string ExpiryMonth { get; set; } = string.Empty;
-    public string ExpiryYear { get; set; } = string.Empty;
+    public int ExpiryMonth { get; set; } 
+    public int ExpiryYear { get; set; } 
     public string CardHolderName { get; set; } = string.Empty;
     public decimal AvailableBalance { get; set; }
     public decimal CreditLimit { get; set; }

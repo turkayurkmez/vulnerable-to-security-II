@@ -209,7 +209,18 @@ Uygulama başlarken aşağıdaki kullanıcılar otomatik olarak oluşturulur:
 
 ## Güvenlik Açıkları (Eğitim Amaçlı)
 
-Bu projede kasıtlı olarak bırakılan başlıca açıklar:
+Bu projede kasıtlı olarak bırakılan başlıca açıklar ve mevcut düzeltme durumları:
+
+### ✅ Düzeltilen Açıklar
+
+| Açık | İlgili Kod | Düzeltme |
+|------|-----------|----------|
+| Negatif / sıfır tutar kabulü | `AuthorizationService.ProcessAsync` | `amount <= 0` kontrolü eklendi, geçersiz tutar reddediliyor |
+| Maksimum tutar kontrolü yok | `AuthorizationService.ProcessAsync` | 100.000 TL üzeri işlemler engelleniyor |
+| Kart vade tarihi kontrolü yok | `AuthorizationService.ProcessAsync` | Süresi dolmuş kartlar artık reddediliyor |
+| Tahmin edilebilir transaction ID (`TXN000001`, `TXN000002`...) | `AuthorizationService.ProcessAsync` | UUID tabanlı rastgele ID ile değiştirildi (`TXN{8-char-guid}`) |
+
+### ⚠️ Açık Kalan Zafiyetler
 
 | Açık | İlgili Endpoint | CVSS |
 |------|----------------|------|
@@ -220,7 +231,9 @@ Bu projede kasıtlı olarak bırakılan başlıca açıklar:
 | Weak JWT Secret (hardcoded) | `POST /api/auth/login` | 9.1 |
 | IDOR - Kart bilgilerine yetkisiz erişim | `GET /api/cards/{id}` | 8.1 |
 | IDOR - Kullanıcı profili | `GET /api/account/profile/{userId}` | 6.5 |
-| OTP/Token Response'da açık gönderim | `POST /api/auth/otp/send`, `POST /api/auth/forgot-password` | 8.1 |
+| OTP/Token response'da açık gönderim | `POST /api/auth/otp/send`, `POST /api/auth/forgot-password` | 8.1 |
+| Full PAN + CVV yetkilendirme response'unda | `POST /api/transactions/authorize` | 8.1 |
 | MD5 ile şifre hashleme (PCI DSS ihlali) | `POST /api/auth/login` | - |
 | Pagination eksikliği (DoS riski) | `GET /api/transactions` | - |
 | CORS tamamen açık | Tüm endpoint'ler | - |
+| Fraud detection / velocity check yok | `POST /api/transactions/authorize` | - |
