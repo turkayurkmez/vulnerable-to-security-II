@@ -48,8 +48,8 @@ public class AuthController : ControllerBase
         if (user == null)
             return Unauthorized(new { error = "Kullanıcı bulunamadı" }); // AÇIK: Enumeration!
 
-        var passwordHash = ComputeMd5(request.Password);
-        if (user.Password != passwordHash)
+        //var passwordHash = ComputeMd5(request.Password);
+        if (!BCrypt.Net.BCrypt.Verify(request.Password,user.Password))
             return Unauthorized(new { error = "Şifre hatalı" }); // AÇIK: Enumeration!
 
         if (!user.IsActive)
@@ -112,7 +112,7 @@ public class AuthController : ControllerBase
 
         // AÇIK: Token direkt response'da — saldırgan intercept ederse şifre değiştirebilir
         // Güvenli: Token email ile gönderilmeli, response'da asla görünmemeli
-        return Ok(new { Message = "Reset token oluşturuldu", ResetToken = token });
+        return Ok(new { Message = "Eğer eposta kayıtlıysa, sıfırlama talimatları gönderildi", ResetToken = token });
     }
 
     // POST /api/auth/reset-password

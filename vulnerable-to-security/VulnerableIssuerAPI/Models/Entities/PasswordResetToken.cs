@@ -15,5 +15,8 @@ public class PasswordResetToken
     // AÇIK: IsUsed yok — token birden fazla kez kullanılabilir (replay attack)
     // EXPLOIT: Şifre değiştirildikten sonra aynı token ile tekrar değiştirilebilir
 
+    public bool IsUsed { get; set; }
+    public DateTime ExpireAt { get; set; }
+
     public User User { get; set; } = null!;
 }

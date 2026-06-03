@@ -17,6 +17,7 @@
   - [Transactions](#transactions-apitransactions)
   - [Account](#account-apiaccount)
   - [Debug](#debug-_debug)
+  - [Threat Modelling](#threat-modelling-apithreatmodelling)
 - [Transaction State Machine](#transaction-state-machine)
 - [Güvenlik Açıkları (Eğitim Amaçlı)](#güvenlik-açıkları-eğitim-amaçlı)
   - [STRIDE Analizi](#stride-analizi)
@@ -212,6 +213,19 @@ Uygulama başlarken aşağıdaki kullanıcılar otomatik olarak oluşturulur:
 
 ---
 
+### Threat Modelling (`/api/threatmodelling`)
+
+> 🔍 Sistemdeki tehditleri STRIDE kategorisine göre listeleyen, okuma amaçlı endpoint'ler.
+
+| Method | Endpoint | Auth | Açıklama |
+|--------|----------|------|----------|
+| `GET` | `/api/threatmodelling` | ❌ | Tüm tehditleri listeler |
+| `GET` | `/api/threatmodelling/category/{category}` | ❌ | Belirtilen STRIDE kategorisindeki tehditleri listeler |
+| `GET` | `/api/threatmodelling/open` | ❌ | Henüz kapatılmamış (Open) tehditleri listeler |
+| `GET` | `/api/threatmodelling/summary` | ❌ | Kategori bazlı tehdit özetini döner (Open / Mitigated / AcceptedRisk) |
+
+---
+
 ## Transaction State Machine
 
 İşlem yaşam döngüsü `TransactionStateMachine` sınıfı aracılığıyla yönetilmektedir. Geçersiz durum geçişleri `InvalidOperationException` fırlatarak engellenir.
@@ -257,6 +271,7 @@ Bu projede kasıtlı olarak bırakılan başlıca açıklar ve mevcut düzeltme 
 | **T**ampering | Arbitrary SQL execution | `POST /_debug/execute-sql` | ⚠️ Açık |
 | **T**ampering | Geçersiz durum geçişleri (ör. Settled → Pending) | `TransactionStateMachine` | ✅ Düzeltildi |
 | **R**epudiation (İnkar) | Transaction ID tahmin edilebilir — kayıt inkâr edilebilir | `POST /api/transactions/authorize` | ✅ Düzeltildi |
+| **R**epudiation | Şifre sıfırlama token'ı süresiz ve tekrar kullanılabilir | `POST /api/auth/reset-password` | ✅ Düzeltildi |
 | **I**nformation Disclosure (Bilgi Sızdırma) | Full PAN yetkilendirme response'unda açıkta | `POST /api/transactions/authorize` | ✅ Düzeltildi |
 | **I**nformation Disclosure | CVV response'da dönüyor | `POST /api/transactions/authorize` | ✅ Düzeltildi |
 | **I**nformation Disclosure | Full PAN + CVV diğer endpoint'lerde açıkta | `GET /api/cards/{id}`, `GET /api/account/profile/{userId}` | ⚠️ Açık |
@@ -281,6 +296,7 @@ Bu projede kasıtlı olarak bırakılan başlıca açıklar ve mevcut düzeltme 
 | Full PAN yetkilendirme response'unda (PCI DSS ihlali) | `AuthorizationService.ProcessAsync`, `AuthorizationResponse` | PAN maskelendi — yalnızca ilk 6 + son 4 karakter gösteriliyor (`123456*******7890`) |
 | CVV yetkilendirme response'unda (PCI DSS ihlali) | `AuthorizationService.ProcessAsync`, `AuthorizationResponse` | CVV response'dan kaldırıldı |
 | Geçersiz state geçişleri (ör. Settled → Pending) | `TransactionStateMachine` | İzin verilmeyen geçişler `InvalidOperationException` fırlatıyor |
+| Şifre sıfırlama token'ı süresiz ve tekrar kullanılabilir | `PasswordResetToken`, migration `change_pwd_reset` | `ExpireAt` (token süresi) ve `IsUsed` (tek kullanımlık) alanları eklendi |
 
 ### ⚠️ Açık Kalan Zafiyetler
 

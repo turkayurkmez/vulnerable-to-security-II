@@ -26,19 +26,26 @@ public class PasswordResetService
         // CVSS: 5.3 (Medium) — Information Disclosure
         // Modül 2.1 (Password Reset Güvenliği) için
         if (user == null)
-            return "Hata: Bu email adresi kayıtlı değil"; // Saldırgana bilgi sızdırıyor!
+            return string.Empty; // Saldırgana bilgi sızdırıyordu, fakat şimdi boş döndürüyoruz.
 
         // AÇIK: Tahmin edilebilir token = userId + DateTime.Ticks
         // EXPLOIT: userId=1 ise ve yaklaşık zaman biliniyorsa token tahmin edilebilir
         // Güvenli alternatif: Convert.ToBase64String(RandomNumberGenerator.GetBytes(32))
         // CVSS: 7.5 (High) — Weak Token Generation
-        var token = $"{user.Id}_{DateTime.Now.Ticks}";
+        //var token = $"{user.Id}_{DateTime.Now.Ticks}";
+
+        var tokenBytes = RandomNumberGenerator.GetBytes(32); //256-bit entropy
+        var token = Convert.ToBase64String(tokenBytes).Replace("+","-")
+                                                      .Replace("/","_")
+                                                      .Replace("=",""); //Url-safe Base64 (Url dostu base64 string)
 
         var resetToken = new PasswordResetToken
         {
             UserId = user.Id,
             Token = token,
-            CreatedAt = DateTime.Now
+            CreatedAt = DateTime.Now,
+            IsUsed = false,
+            ExpireAt = DateTime.Now.AddMinutes(15)
             // AÇIK: ExpiresAt yok — token sonsuza kadar geçerli
             // Güvenli: ExpiresAt = DateTime.UtcNow.AddMinutes(15)
         };
@@ -63,11 +70,27 @@ public class PasswordResetService
         // AÇIK: Expiry kontrolü yok — 6 ay önce üretilen token hâlâ geçerli
         // Güvenli: if (resetToken.ExpiresAt < DateTime.UtcNow) return false;
 
+        if (resetToken.ExpireAt < DateTime.UtcNow)
+        {
+            return false;
+        }
+        //GÜvenli: Token bir kez kullanıldıktan sonra geçersiz hale getiriliyor
+        if (resetToken.IsUsed)
+        {
+            return false;
+        }
+
         // AÇIK: MD5 hash — çoktan kırılmış, rainbow table saldırısına açık
         // PCI DSS: Requirement 8.2.1 — strong cryptography zorunlu
         // Güvenli: BCrypt.HashPassword(newPassword, workFactor: 12)
         // CVSS: 6.5 (Medium) — Weak Password Hashing
-        resetToken.User.Password = ComputeMd5(newPassword);
+
+
+
+
+
+        resetToken.User.Password = BCrypt.Net.BCrypt.HashPassword(newPassword, workFactor: 12); // Work factor 12, çünkü yaklaşık 250ms sürede hash'leniyor, bu da brute-force saldırılarını zorlaştırır.
+        resetToken.IsUsed = true; // Token kullanıldı olarak işaretleniyor
         await _context.SaveChangesAsync();
 
         // AÇIK: Token kullanıldıktan sonra silinmiyor
@@ -75,10 +98,10 @@ public class PasswordResetService
         // Güvenli: _context.PasswordResetTokens.Remove(resetToken);
         return true;
     }
-
-    private static string ComputeMd5(string input)
-    {
-        var hash = MD5.HashData(Encoding.UTF8.GetBytes(input));
-        return Convert.ToHexString(hash).ToLower();
-    }
+    //Artık MD5 kullanılmıyor, bu yüzden ComputeMd5 fonksiyonu da kaldırıldı.
+    //private static string ComputeMd5(string input)
+    //{
+    //    var hash = MD5.HashData(Encoding.UTF8.GetBytes(input));
+    //    return Convert.ToHexString(hash).ToLower();
+    //}
 }
