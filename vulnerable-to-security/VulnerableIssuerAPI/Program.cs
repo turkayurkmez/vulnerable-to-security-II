@@ -1,9 +1,11 @@
 using System.Text;
+using System.Threading.RateLimiting;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using Scalar.AspNetCore;
 using VulnerableIssuerAPI.Data;
+using VulnerableIssuerAPI.Security;
 using VulnerableIssuerAPI.SeedData;
 using VulnerableIssuerAPI.Services;
 
@@ -18,22 +20,62 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     {
         options.TokenValidationParameters = new TokenValidationParameters
         {
-            // AÇIK: İmza doğrulanmıyor — herhangi bir key ile imzalanmış token geçerli
-            ValidateIssuerSigningKey = false,
-            // AÇIK: Issuer kontrolü yok — token'daki issuer önemsiz
-            ValidateIssuer = false,
-            // AÇIK: Audience kontrolü yok — herhangi bir audience kabul ediliyor
-            ValidateAudience = false,
-            // AÇIK: Expiry kontrolü yok — süresi dolmuş token'lar kabul ediliyor
-            ValidateLifetime = false,
-            // AÇIK: Algorithm confusion — "none" algoritması kabul ediliyor
-            // EXPLOIT: eyJhbGciOiJub25lIiwidHlwIjoiSldUIn0.eyJ1c2VySWQiOiIzIiwicm9sZSI6ImFkbWluIn0.
-            ValidAlgorithms = new[] { "HS256", "HS384", "HS512", "none" },
-            IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes("secret"))
+
+            ValidateIssuerSigningKey = true,
+            IssuerSigningKey = RsaKeyProvider.GetPublicKey(),
+            ValidIssuer = "api.softtech.com",
+
+            ValidateIssuer = true,
+
+            ValidateAudience = true,
+            ValidAudience = "client.softtech.com",
+
+            ValidateLifetime = true,
+
+
+            ValidAlgorithms = new[] { SecurityAlgorithms.RsaSha256 },
+
+            ClockSkew = TimeSpan.Zero //ClockSkew'in amacı, token süresinin tam olarak dolduğu anda geçersiz sayılmasını önlemek için küçük bir tolerans sağlamaktır. Ancak burada sıfır yaparak, token süresi dolar dolmaz geçersiz sayılmasını sağlıyoruz. Bu, token'ın süresi dolduktan sonra hemen reddedilmesini sağlar ve güvenliği artırır.
         };
     });
 
+builder.Services.AddMemoryCache();
+
 builder.Services.AddAuthorization();
+
+builder.Services.AddRateLimiter(options =>
+{
+    // TODO 2: otp-per-account ve otp-per-ip limitleri ekle
+    options.AddPolicy("otp-per-account", httpContext => RateLimitPartition.GetSlidingWindowLimiter(
+        partitionKey: httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+        factory: _ => new SlidingWindowRateLimiterOptions
+        {
+            PermitLimit = 5, // Her hesap için 5 OTP doğrulama denemesi
+            Window = TimeSpan.FromMinutes(5), // 55 dakika boyunca geçerli
+            SegmentsPerWindow = 5,
+            QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
+            QueueLimit = 0
+        }) );
+
+    options.AddPolicy("otp-per-ip", httpContxt => RateLimitPartition.GetFixedWindowLimiter(
+        partitionKey: httpContxt.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+        factory: _ => new FixedWindowRateLimiterOptions
+        {
+            PermitLimit = 10, // Her IP adresi için dakikada 100 OTP doğrulama denemesi
+            Window = TimeSpan.FromMinutes(5),
+            QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
+            QueueLimit = 0
+        }));
+
+    options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+    options.OnRejected = async (context,_) =>
+    {
+        context.HttpContext.Response.Headers["Retry-After"] = "300"; // 5 dakika sonra tekrar deneyin
+        await Task.CompletedTask;
+    };
+
+
+});
 
 // ============================================================
 // AÇIK: CORS tamamen açık — her origin, her method, her header
@@ -136,7 +178,7 @@ if (app.Environment.IsDevelopment()) // AÇIK: Koşulsuz Swagger açma
 
 // Scalar API reference (ek UI)
 //app.MapScalarApiReference();
-
+app.UseRateLimiter();
 app.UseAuthentication();
 app.UseAuthorization();
 

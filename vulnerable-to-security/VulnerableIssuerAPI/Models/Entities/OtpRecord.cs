@@ -18,5 +18,8 @@ public class OtpRecord
     // AÇIK: AttemptCount yok — sınırsız deneme hakkı var
     // EXPLOIT: Brute-force ile tüm kombinasyonlar denenebilir
 
+    public bool IsUsed { get; set; }
+    public DateTime ExpiryDate { get; set; }
+
     public User User { get; set; } = null!;
 }
