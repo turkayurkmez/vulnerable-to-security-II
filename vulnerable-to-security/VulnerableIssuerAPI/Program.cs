@@ -100,6 +100,7 @@ builder.Services.AddDbContext<VulnerableDbContext>(options =>
 builder.Services.AddScoped<AuthorizationService>();
 builder.Services.AddScoped<OtpService>();
 builder.Services.AddScoped<PasswordResetService>();
+builder.Services.AddSingleton<IdempotencyService>();
 
 builder.Services.AddControllers();
 

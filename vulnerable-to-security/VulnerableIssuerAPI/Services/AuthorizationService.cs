@@ -11,30 +11,67 @@ public class AuthorizationService
 {
     private readonly VulnerableDbContext _context;
     private readonly ILogger<AuthorizationService> _logger;
+    private readonly IdempotencyService _idempotencyService;
 
-    public AuthorizationService(VulnerableDbContext context, ILogger<AuthorizationService> logger)
+    public AuthorizationService(VulnerableDbContext context, ILogger<AuthorizationService> logger, IdempotencyService idempotencyService)
     {
         _context = context;
         _logger = logger;
+        _idempotencyService = idempotencyService;
     }
 
     public async Task<AuthorizationResponse> ProcessAsync(AuthorizationRequest request)
     {
-        // AÇIK: Fraud detection yok — her işlem onaylanıyor
-        // AÇIK: Velocity check yok — aynı kartla dakikada yüzlerce işlem yapılabilir
-        // AÇIK: Amount validation yok — negatif tutar kabul ediliyor
-        // AÇIK: Blacklist check yok — kısıtlı merchant'larla işlem yapılabilir
+
         // CVSS: 8.2 (High) — Business Logic Flaw
         // Modül 1.2 (Transaction Lifecycle) ve Modül 2.5 (Fraud Detection) için
+
+        if (!string.IsNullOrEmpty(request.IdempotencyKey))
+        {
+            var existing = _idempotencyService.GetExistingRecord(request.IdempotencyKey);
+            if (existing != null)
+            {
+                _logger.LogInformation("Duplicate request detected! {Key} -> {Txn}", request.IdempotencyKey, existing.TransactionId
+                );
+                return (AuthorizationResponse)existing.CachedResponse;
+            }
+        }
+
+        var validationError = validateBusinessRules(request);
+        if (validationError!=null)
+        {
+            return new AuthorizationResponse { IsApproved = false, ErrorMessage = validationError };
+
+        }
 
         var card = await _context.Cards
             .FirstOrDefaultAsync(c => c.CardNumber == request.CardNumber);
 
-
-
-
         if (card == null)
             return new AuthorizationResponse { IsApproved = false, ErrorMessage = "Kart bulunamadı" };
+
+        var fraudScore = await Security.FraudDetection.EvaluateFraudRiskAsync(request, card, _context);
+
+        if (fraudScore >= 80)
+        {
+            _logger.LogWarning("[FRAUD - HIGH] CardId = {CardId}, Score = {Score} - BLOCKED!", card.Id, fraudScore);
+            return new AuthorizationResponse
+            {
+                IsApproved = false,
+                ErrorMessage = "İşlem güvenlik nedeniyle reddedildi"
+            };
+        }
+        else if (fraudScore >= 50)
+        {
+            _logger.LogWarning("[FRAUD - MEDIUM] CardId = {CardId}, Score = {Score} - REVIEW REQUIRED!", card.Id, fraudScore);
+
+            //OTP veya 3D Secure gibi ek doğrulama mekanizması tetiklenebilir. Şimdilik sadece log'a yazıyoruz.
+
+        }
+
+
+
+
 
         // AÇIK: CVV doğrulaması sadece string karşılaştırması
         // AÇIK: Expiry date kontrolü yok — süresi dolmuş kart kabul ediliyor
@@ -43,7 +80,7 @@ public class AuthorizationService
 
         //Çözüldü: Expiry date kontrolü eklendi, süresi dolmuş kartlar reddediliyor
         var now = DateTime.UtcNow;
-        var cardExpiry = new DateTime(card.ExpiryYear, card.ExpiryMonth,1).AddMonths(1);
+        var cardExpiry = new DateTime(card.ExpiryYear, card.ExpiryMonth, 1).AddMonths(1);
         if (now >= cardExpiry)
         {
             _logger.LogWarning("Süresi dolmuş kart: Card={CardId}, Expiry={ExpiryMonth}/{ExpiryYear}", card.Id, card.ExpiryMonth, card.ExpiryYear);
@@ -78,7 +115,13 @@ public class AuthorizationService
             };
         }
 
-
+        //f(f(x)) = f(x): Idempotent fonksiyon. Her zaman aynı sonucu verir, tekrar çağrıldığında aynı sonucu döner.
+        /*
+         * GET: idempotent, safe (state değiştirmez)
+         * PUT: idempotent, unsafe (state değiştirebilir)
+         * POST: non-idempotent, unsafe (state değiştirebilir)
+         * PATCH: non-idempotent, unsafe (state değiştirebilir)
+         */
 
         card.AvailableBalance -= request.Amount;
 
@@ -90,12 +133,12 @@ public class AuthorizationService
 
         var transaction = new Transaction
         {
-          TransactionId = $"TXN{shortId}",
+            TransactionId = $"TXN{shortId}",
             CardId = card.Id,
             MerchantId = request.MerchantId,
             Amount = request.Amount,
             Currency = request.Currency ?? "TRY",
-            Status =TransactionStatus.Pending.ToString(),
+            Status = TransactionStatus.Pending.ToString(),
             Description = request.Description ?? string.Empty, // AÇIK: XSS — sanitize edilmiyor
             Notes = request.Notes,                              // AÇIK: XSS vector
             CreatedAt = DateTime.UtcNow,
@@ -104,7 +147,7 @@ public class AuthorizationService
         };
 
         //TransactionStateMachine kullanılarak durum geçişi yapılıyor.
-        TransactionStateMachine.Transition(TransactionStatus.Pending, TransactionStatus.Authorized); 
+        TransactionStateMachine.Transition(TransactionStatus.Pending, TransactionStatus.Authorized);
         _context.Transactions.Add(transaction);
         await _context.SaveChangesAsync();
 
@@ -117,7 +160,7 @@ public class AuthorizationService
 
         var pan = card.CardNumber;
 
-        return new AuthorizationResponse
+        var response = new AuthorizationResponse
         {
             IsApproved = true,
             TransactionId = transaction.TransactionId,
@@ -127,5 +170,26 @@ public class AuthorizationService
             AvailableBalance = card.AvailableBalance,
             RemainingLimit = card.CreditLimit - card.AvailableBalance
         };
+
+        if (!string.IsNullOrWhiteSpace(request.IdempotencyKey))
+        {
+            _idempotencyService.StoreRecord(request.IdempotencyKey, transaction.TransactionId, response);
+        }
+
+        return response;
+    }
+
+
+    private string? validateBusinessRules(AuthorizationRequest request)
+    {
+        var supportedCurrencies = new[] { "TRY", "USD", "EUR" };
+        var currency = request.Currency.ToUpper() ?? "TRY";
+        if (!supportedCurrencies.Contains(currency))
+        {
+            return $"Desteklenmeyen para birimi: {currency}";
+        }
+
+
+        return null;
     }
 }

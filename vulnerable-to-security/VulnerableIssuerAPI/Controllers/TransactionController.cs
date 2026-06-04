@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using System.Security.Claims;
 using VulnerableIssuerAPI.Data;
 using VulnerableIssuerAPI.Models.DTOs;
 using VulnerableIssuerAPI.Services;
@@ -13,22 +14,38 @@ public class TransactionController : ControllerBase
 {
     private readonly VulnerableDbContext _context;
     private readonly AuthorizationService _authorizationService;
+    private readonly ILogger<TransactionController> _log;
 
-    public TransactionController(VulnerableDbContext context, AuthorizationService authorizationService)
+    public TransactionController(VulnerableDbContext context, AuthorizationService authorizationService, ILogger<TransactionController> logger)
     {
         _context = context;
         _authorizationService = authorizationService;
+        _log = logger;
     }
 
+
+    private readonly TimeSpan ReplayWindow = TimeSpan.FromMinutes(5);
     // POST /api/transactions/authorize
     // AÇIK: Authentication yok — herkes yetkilendirme yapabilir
     // AÇIK: Input validation yok — negatif tutar, XSS, geçersiz kart vs hepsi kabul
     // AÇIK: Idempotency yok — aynı istek iki kez gönderilirse çifte işlem oluşur
     // Modül 1.2 (Transaction Lifecycle), Modül 3.1 (Input Validation), Modül 3.2 (Idempotency)
     [HttpPost("authorize")]
-    public async Task<IActionResult> Authorize([FromBody] AuthorizationRequest request)
+    public async Task<IActionResult> Authorize([FromBody] AuthorizationRequest request, [FromHeader(Name = "X-Request-Timestamp")] string? timestampHeader)
     {
+        if (!string.IsNullOrEmpty(timestampHeader))
+        {
+            if (DateTimeOffset.TryParse(timestampHeader, out var requestTime) || DateTimeOffset.UtcNow - requestTime > ReplayWindow)
+            {
+                return BadRequest(new { error = "İstek süresi dolmuş." });
+            }
+        }
         var response = await _authorizationService.ProcessAsync(request);
+        if (!response.IsApproved)
+        {
+            return BadRequest(new { error = "İşlem reddedildi" });
+        }
+        _log.LogInformation("Authorized. UserId={user}, Transaction:{txn}", User.FindFirstValue("userId"), response.TransactionId);
         return Ok(response);
     }
 
@@ -42,7 +59,7 @@ public class TransactionController : ControllerBase
     {
         // AÇIK: Tüm işlemler + Card entity dahil — PAN açıkta
         var transactions = await _context.Transactions
-            .Include(t => t.Card)
+            //   .Include(t => t.Card)
             .ToListAsync();
         return Ok(transactions); // Card entity dahil — PAN açıkta (PCI DSS ihlali)
     }
@@ -61,22 +78,50 @@ public class TransactionController : ControllerBase
         if (string.IsNullOrEmpty(query))
             return BadRequest("Query parametresi gerekli");
 
-        // AÇIK: FromSqlRaw ile parametre binding yapılmadan string concatenation
+
         // Güvenli alternatif: .FromSqlRaw("SELECT * FROM Transactions WHERE Description LIKE {0}", $"%{query}%")
-        var sql = $"SELECT * FROM Transactions WHERE Description LIKE '%{query}%' OR Notes LIKE '%{query}%'";
+        //' GO drop database xxx GO --
+        var searchTerm = $"%{query}%";
+        //var sql = $"SELECT * FROM Transactions WHERE Description LIKE '%{query}%' OR Notes LIKE '%{query}%'";
 
         var transactions = await _context.Transactions
-            .FromSqlRaw(sql)
+            .FromSqlRaw("SELECT * FROM Transactions WHERE Description LIKE {0} OR Notes LIKE {0}", searchTerm)
             .ToListAsync();
 
         // AÇIK: Hata mesajları SQL detaylarını içerebilir (global exception handler sayesinde)
         // AÇIK: Input reflection — query string XSS vector olarak response'da dönüyor
         return Ok(new
         {
-            Query = query,  // AÇIK: Sanitize edilmemiş input reflection
+            // Query = query,  // AÇIK: Sanitize edilmemiş input reflection
+
             Count = transactions.Count,
-            Results = transactions
+            Results = transactions.Select(t => new
+            {
+                t.TransactionId,
+                t.MerchantId,
+                t.Amount,
+                t.Currency,
+                t.Status,
+                Description = HtmlEncode(t.Description),
+                Notes = HtmlEncode(t.Notes)
+
+            })
         });
+    }
+
+    private string HtmlEncode(string input)
+    {
+        if (string.IsNullOrEmpty(input))
+        {
+            return string.Empty;
+        }
+
+        return input.Replace("&", "&amp;")
+                    .Replace("<", "&lt;")
+                    .Replace(">", "&gt;")
+                    .Replace("\"", "&quot;")
+                    .Replace("'", "&#39;");
+
     }
 
     // GET /api/transactions/{id}
