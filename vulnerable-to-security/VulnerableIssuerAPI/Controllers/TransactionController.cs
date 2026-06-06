@@ -137,6 +137,14 @@ public class TransactionController : ControllerBase
             .Include(t => t.Card)
             .FirstOrDefaultAsync(t => t.TransactionId == id);
 
+        //oturum açan user ile transaction.UserId karşılaştırması yap:
+        var userId = Convert.ToInt32( User.FindFirstValue("UserId"));
+        if (transaction.Card.User.Id !=  userId)
+        {
+            return Forbid(); // Güvenli: Başkasının işlem detaylarına erişim engelleniyor
+
+        }
+
         if (transaction == null)
             return NotFound(new { error = $"İşlem bulunamadı: {id}" }); // AÇIK: ID reflection
 

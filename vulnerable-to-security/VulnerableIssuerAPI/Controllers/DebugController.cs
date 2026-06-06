@@ -1,7 +1,10 @@
 using System.Collections;
+using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using VulnerableIssuerAPI.Data;
+using VulnerableIssuerAPI.Models.Entities;
+using VulnerableIssuerAPI.Services;
 
 namespace VulnerableIssuerAPI.Controllers;
 
@@ -35,13 +38,16 @@ public class DebugController : ControllerBase
 
         return Ok(new
         {
-            Environment = envVars,                                                  // AÇIK: Tüm env vars
-            ConnectionString = _configuration.GetConnectionString("Default"),       // AÇIK: DB bağlantısı
-            MachineName = Environment.MachineName,
-            OsVersion = Environment.OSVersion.ToString(),
-            DotNetVersion = Environment.Version.ToString(),
-            WorkingDirectory = Directory.GetCurrentDirectory(),
-            ProcessId = Environment.ProcessId
+            //Environment = envVars,                                                  // AÇIK: Tüm env vars
+            //ConnectionString = _configuration.GetConnectionString("Default"),       // AÇIK: DB bağlantısı
+            //MachineName = Environment.MachineName,
+            //OsVersion = Environment.OSVersion.ToString(),
+            //DotNetVersion = Environment.Version.ToString(),
+            //WorkingDirectory = Directory.GetCurrentDirectory(),
+            //ProcessId = Environment.ProcessId
+            Status = "Running",
+            TimeStamp=DateTime.UtcNow,
+            Version = "1.0.0",
         });
     }
 
@@ -61,6 +67,7 @@ public class DebugController : ControllerBase
     [HttpGet("health")]
     public IActionResult GetHealth()
     {
+        //throw new Exception("Kasti bir hata..."); // Modül 4.2 (Error Handling & Information Disclosure) için
         return Ok(new
         {
             Status = "Healthy",
@@ -86,6 +93,8 @@ public class DebugController : ControllerBase
     [HttpPost("execute-sql")]
     public async Task<IActionResult> ExecuteSql([FromBody] string sql)
     {
+        //GÜVENLİ:Endpoint DEVRE DIŞI!
+        return NotFound();
         try
         {
             // AÇIK: Güvenlik kontrolü yok, her SQL çalışıyor
@@ -112,6 +121,25 @@ public class DebugController : ControllerBase
     public async Task<IActionResult> GetAllCards()
     {
         var cards = await _context.Cards.ToListAsync();
-        return Ok(cards); // Full PAN + CVV — PCI DSS ihlali
+        List<Card> maskedCards = new List<Card>();
+        cards.ForEach(c =>
+        {
+            maskedCards.Add(new Card
+            {
+                Id = c.Id,
+                UserId = c.UserId,
+                CardNumber = SensitiveDataMasker.MaskPan(c.CardNumber), // Güvenli
+                CVV = SensitiveDataMasker.MaskCvv(c.CVV),             // Güvenli
+                ExpiryMonth = c.ExpiryMonth,
+                ExpiryYear = c.ExpiryYear,
+                CardHolderName = c.CardHolderName,
+                AvailableBalance = c.AvailableBalance,
+                CreditLimit = c.CreditLimit,
+                IsActive = c.IsActive,
+                CardType = c.CardType,
+                BankCode = SensitiveDataMasker.Redacted(c.BankCode)
+            });
+        });
+        return Ok(maskedCards); // Full PAN + CVV — PCI DSS ihlali
     }
 }

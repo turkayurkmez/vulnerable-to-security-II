@@ -28,13 +28,15 @@ public class AuthController : ControllerBase
     private readonly OtpService _otpService;
     private readonly PasswordResetService _passwordResetService;
     private readonly ILogger<AuthController> _logger;
+    private readonly IDeviceFingerPrintingService _deviceFingerPrintingService;
 
-    public AuthController(VulnerableDbContext context, OtpService otpService, PasswordResetService passwordResetService, ILogger<AuthController> logger)
+    public AuthController(VulnerableDbContext context, OtpService otpService, PasswordResetService passwordResetService, ILogger<AuthController> logger, IDeviceFingerPrintingService deviceFingerPrintingService)
     {
         _context = context;
         _otpService = otpService;
         _passwordResetService = passwordResetService;
         _logger = logger;
+        _deviceFingerPrintingService = deviceFingerPrintingService;
     }
 
     // POST /api/auth/login
@@ -42,7 +44,8 @@ public class AuthController : ControllerBase
     // AÇIK: Account lockout yok — sınırsız deneme
     // EXPLOIT: Şifreleri tek tek deneyebilirsin, hesap kilitlenmez
     // Modül 2.4 (JWT) ve Modül 3.4 (Rate Limiting) için
-    [HttpPost("login")]
+    [EnableRateLimiting("bucket")]
+    [HttpPost("login")]    
     public async Task<IActionResult> Login([FromBody] LoginRequest request)
     {
         // AÇIK: Timing attack — kullanıcı bulunamazsa vs şifre yanlışsa farklı response süresi
@@ -50,21 +53,37 @@ public class AuthController : ControllerBase
             .FirstOrDefaultAsync(u => u.Username == request.Username);
 
         if (user == null)
-            return Unauthorized(new { error = "Kullanıcı bulunamadı" }); // AÇIK: Enumeration!
+            return Unauthorized();
 
         //var passwordHash = ComputeMd5(request.Password);
-        if (!BCrypt.Net.BCrypt.Verify(request.Password,user.Password))
-            return Unauthorized(new { error = "Şifre hatalı" }); // AÇIK: Enumeration!
+        if (!BCrypt.Net.BCrypt.Verify(request.Password, user.Password))
+            return Unauthorized(); // AÇIK: Enumeration!
 
         if (!user.IsActive)
-            return Unauthorized(new { error = "Hesap aktif değil" });
+            return Unauthorized();
 
 
         //demo amaçlı MFA token'ı burada oluşturyoruz. MFA yani Çok Faktörlü Kimlik Doğrulama, kullanıcıların kimliklerini doğrulamak için birden fazla yöntem kullanmalarını gerektiren bir güvenlik önlemidir. Genellikle, kullanıcı adı ve şifre gibi birinci faktörün yanı sıra, telefonlarına gönderilen bir kod veya bir uygulama tarafından üretilen tek kullanımlık şifre gibi ikinci bir faktör de gerektirir. Bu, saldırganların sadece şifreyi ele geçirmeleri durumunda bile hesaba erişmelerini zorlaştırır.
         //Olası tehditler: Session fixation, token hijacking, brute-force MFA bypass.
 
 
+        var correlationId =  (string) HttpContext.Items["CorrelationId"];
+
+
         var pendingMFAToken = generateMFAToken(user.Id);
+
+
+        var fingerprint = _deviceFingerPrintingService.ExtractFingerPrinting(HttpContext);
+        var trustLevel = await _deviceFingerPrintingService.EvaluateDeviceAsync(user.Id, fingerprint);
+
+        _logger.LogInformation("Device trust level for user {userId}: {trustLevel}", user.Id, trustLevel);
+
+        if (trustLevel == DeviceTrustLevel.New)
+        {
+            await _deviceFingerPrintingService.RegisterDeviceAsync(user.Id, fingerprint);
+        }
+
+
 
         var token = GenerateSecureJwtToken(user);
 
@@ -84,7 +103,19 @@ public class AuthController : ControllerBase
             Email = user.Email,
             FullName = user.FullName
         };
-        return Ok(new {response= response, pendingKey=pendingKey, message="MFA key bekleniyor."});
+
+        _logger.LogInformation("Correlation Id:{Id}", correlationId);
+
+        return trustLevel switch
+        {
+            DeviceTrustLevel.Trusted => Ok(response),
+            DeviceTrustLevel.New => Ok(new { response = response, pendingKey = pendingKey, message = "Yeni cihaz tespit edildi. MFA doğrulaması gerekiyor." }),
+            DeviceTrustLevel.Suspicious => Ok(new { response = response, pendingKey = pendingKey, message = "Şüpheli cihaz tespit edildi. MFA doğrulaması gerekiyor." }),
+            _ => Ok(response)
+        };
+
+
+       // return Ok(new { response = response, pendingKey = pendingKey, message = "MFA key bekleniyor." });
     }
 
     [HttpPost("verify_mfa")]
@@ -118,7 +149,7 @@ public class AuthController : ControllerBase
 
         // AÇIK: OTP kodu direkt response'da dönüyor (SMS gitmeli!)
         // EXPLOIT: Response'u izleyen saldırgan OTP'yi görür
-        _logger.LogInformation("[SMS Simülasyonu]: {code}", otpCode);
+        _logger.LogInformation("[CorrelationID]={id} - [SMS Simülasyonu]: {code}", HttpContext.Items["CorrelationId"], otpCode);
         return Ok(new { Message = "OTP gönderildi" });
     }
 
@@ -126,14 +157,14 @@ public class AuthController : ControllerBase
     // AÇIK: Rate limiting yok — brute-force açığı
     // EXPLOIT: Postman Runner ile 1000-9999 arası tüm değerleri dene (dakikalar içinde kırılır)
     // Modül 2.2 (OTP Güvenliği) için
-    [EnableRateLimiting("otp-per-account")]  
+    [EnableRateLimiting("otp-per-account")]
     [HttpPost("otp/verify")]
     public async Task<IActionResult> VerifyOtp([FromBody] OtpVerifyRequest request)
     {
         var isValid = await _otpService.VerifyOtpAsync(request.UserId, request.OtpCode, request.Purpose);
 
         if (!isValid)
-            return BadRequest(new { error = "OTP hatalı veya süresi geçmiş" });
+            return BadRequest(new ErrorResponse(Error:"Otp işlemi hatalı",Guid.NewGuid().ToString(), Code:"OTP_INVALID"));
 
         return Ok(new { Message = "OTP doğrulandı", UserId = request.UserId });
     }
@@ -175,7 +206,7 @@ public class AuthController : ControllerBase
         // EXPLOIT: Algorithm:none ile imzasız token oluşturulup gönderilir
         // EXPLOIT: eyJhbGciOiJub25lIiwidHlwIjoiSldUIn0.eyJ1c2VySWQiOiIxIiwicm9sZSI6ImFkbWluIn0.
         // CVSS: 9.1 (Critical) — Broken Authentication
-       // var key = Encoding.UTF8.GetBytes(JwtSecret);
+        // var key = Encoding.UTF8.GetBytes(JwtSecret);
         var tokenHandler = new JwtSecurityTokenHandler();
 
         var signingCredentials = new SigningCredentials(
@@ -189,6 +220,7 @@ public class AuthController : ControllerBase
         {
             Subject = new ClaimsIdentity(new[]
             {
+                new Claim("UserId", user.Id.ToString()),
                 new Claim(JwtRegisteredClaimNames.Sub,user.Id.ToString()),
                 new Claim("role", user.Role),
                 // AÇIK: Sensitive data in JWT payload — base64 decode edilebilir
@@ -204,7 +236,7 @@ public class AuthController : ControllerBase
             // Güvenli: Expires = DateTime.UtcNow.AddMinutes(5)
             SigningCredentials = signingCredentials,
             Issuer = "api.softtech.com",
-            Audience= "client.softtech.com",
+            Audience = "client.softtech.com",
         };
 
         var token = tokenHandler.CreateToken(tokenDescriptor);

@@ -5,6 +5,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using Scalar.AspNetCore;
 using VulnerableIssuerAPI.Data;
+using VulnerableIssuerAPI.Middlewares;
 using VulnerableIssuerAPI.Security;
 using VulnerableIssuerAPI.SeedData;
 using VulnerableIssuerAPI.Services;
@@ -67,6 +68,19 @@ builder.Services.AddRateLimiter(options =>
             QueueLimit = 0
         }));
 
+    //Token Bucket örneği:
+
+    options.AddPolicy("bucket", context => RateLimitPartition.GetTokenBucketLimiter(
+        partitionKey: context.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+        factory: _ => new TokenBucketRateLimiterOptions
+        {
+            TokenLimit = 3, // Bucket kapasitesi
+            TokensPerPeriod = 3, // Her periyotta bucket'a eklenen token sayısı
+            ReplenishmentPeriod = TimeSpan.FromSeconds(60), // Token'ların yenilenme süresi
+            QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
+            QueueLimit = 0
+        }));
+
     options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
     options.OnRejected = async (context,_) =>
     {
@@ -101,6 +115,7 @@ builder.Services.AddScoped<AuthorizationService>();
 builder.Services.AddScoped<OtpService>();
 builder.Services.AddScoped<PasswordResetService>();
 builder.Services.AddSingleton<IdempotencyService>();
+builder.Services.AddSingleton<IDeviceFingerPrintingService, DeviceFingerPrintingService>();
 
 builder.Services.AddControllers();
 
@@ -127,6 +142,7 @@ app.UseExceptionHandler(errorApp =>
 {
     errorApp.Run(async context =>
     {
+        var errorID = Guid.NewGuid().ToString("N")[..8].ToUpper();
         context.Response.StatusCode = 500;
         context.Response.ContentType = "application/json";
 
@@ -134,18 +150,24 @@ app.UseExceptionHandler(errorApp =>
         if (exceptionFeature != null)
         {
             var ex = exceptionFeature.Error;
-            // AÇIK: Stack trace ve inner exception detayları client'a gönderiliyor
-            // EXPLOIT: Internal sistemler, DB query yapısı, dosya yolları açığa çıkıyor
+
+            //Güvenli: Loglama yapılır, ancak detaylar client'a gönderilmez
+
+            var logger = context.RequestServices.GetRequiredService<ILogger<Program>>();
+            logger.LogError(ex, "Unhandled exception occurred. ErrorID={ErrorID}, Path={path}", errorID, context.Request.Path);
+
+
             await context.Response.WriteAsJsonAsync(new
             {
-                Error = ex.Message,
-                StackTrace = ex.StackTrace,       // AÇIK: Stack trace
-                InnerException = ex.InnerException?.Message,
-                Type = ex.GetType().FullName       // AÇIK: Exception type
+                Error = "İşleminiz yapılamadı. Daha sonra deneyin",
+                ErrorID = errorID // Destek ekibinin loglarda arama yapabilmesi için hata ID'si döndürülüyor
+
             });
         }
     });
 });
+
+app.UseMiddleware<CorrelationIdMiddleware>();
 
 // AÇIK: HTTPS redirect yok — HTTP üzerinden gelen veriler şifrelenmeden taşınıyor
 // Güvenli: app.UseHttpsRedirection();
